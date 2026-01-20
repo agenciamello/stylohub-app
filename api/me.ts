@@ -1,4 +1,4 @@
-import { requireClerkUserId, supabaseAdmin } from "./_utils";
+import { requireClerkUserId, supabaseAdmin } from "./_utils.js";
 
 export default async function handler(req: any, res: any) {
   let clerkUserId: string;
