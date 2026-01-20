@@ -8,7 +8,7 @@ export type DashboardTab = 'overview' | 'schedule' | 'finance' | 'academy' | 'pr
 
 const listeners: Set<() => void> = new Set();
 
-let globalState = {
+const getInitialState = () => ({
   user: MOCK_USER,
   appointments: MOCK_APPOINTMENTS,
   courses: MOCK_COURSES,
@@ -17,7 +17,9 @@ let globalState = {
   notificationJobs: [] as NotificationJob[],
   currentView: 'login' as ViewState,
   dashboardTab: 'overview' as DashboardTab, // Moved from local to global
-};
+});
+
+let globalState = getInitialState();
 
 const notifyListeners = () => {
   listeners.forEach((listener) => listener());
@@ -330,7 +332,7 @@ export const useStore = () => {
   }, []);
 
   const logout = useCallback(() => {
-    globalState = { ...globalState, currentView: 'login' };
+    globalState = getInitialState();
     notifyListeners();
   }, []);
 

@@ -1,41 +1,116 @@
-import React, { JSX } from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import {
-  SignedIn,
-  SignedOut,
-  SignIn,
-  SignUp,
-  useUser,
-} from "@clerk/clerk-react";
+import { SignIn, SignUp, useAuth } from "@clerk/clerk-react";
 
 import { DashboardPage } from "./components/DashboardPage";
 import { OnboardingQuiz } from "./components/onboarding/OnboardingQuiz";
+import NotFoundPage from "./pages/NotFoundPage";
 
 // 🔒 Garante que o usuário está logado
 function RequireAuth({ children }: { children: JSX.Element }) {
-  return (
-    <>
-      <SignedIn>{children}</SignedIn>
-      <SignedOut>
-        <Navigate to="/login" replace />
-      </SignedOut>
-    </>
-  );
-}
+  const { isLoaded, isSignedIn } = useAuth();
 
-// 🧠 Garante que o onboarding foi completado (POR USUÁRIO)
-function RequireOnboarding({ children }: { children: JSX.Element }) {
-  const { user, isLoaded } = useUser();
-
-  // evita redirecionamento errado enquanto o Clerk ainda está carregando
   if (!isLoaded) return null;
 
-  const userId = user?.id;
-  const key = `stylohub:onboarding_completed:${userId ?? "anonymous"}`;
-  const completed = localStorage.getItem(key);
+  if (!isSignedIn) {
+    return <Navigate to="/login" replace />;
+  }
 
-  if (!completed) {
+  return children;
+}
+
+// 🏠 Decide rota inicial com segurança
+function HomeGate() {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded) return null;
+
+  return <Navigate to={isSignedIn ? "/app" : "/login"} replace />;
+}
+
+// 🧠 Decide onboarding pelo SERVIDOR (/api/me)
+function RequireOnboarding({ children }: { children: JSX.Element }) {
+  const { isLoaded, getToken } = useAuth();
+  const [status, setStatus] = useState<"loading" | "needs" | "done">("loading");
+
+  useEffect(() => {
+    const run = async () => {
+      if (!isLoaded) return;
+
+      try {
+        const token = await getToken();
+        if (!token) {
+          setStatus("done");
+          return;
+        }
+
+        const resp = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!resp.ok) {
+          setStatus("done");
+          return;
+        }
+
+        const data = await resp.json();
+        setStatus(data?.barber ? "done" : "needs");
+      } catch {
+        setStatus("done");
+      }
+    };
+
+    run();
+  }, [isLoaded, getToken]);
+
+  if (!isLoaded || status === "loading") return null;
+
+  if (status === "needs") {
     return <Navigate to="/onboarding" replace />;
+  }
+
+  return children;
+}
+
+// 🚫 Bloqueia onboarding se já existir perfil
+function BlockOnboardingIfDone({ children }: { children: JSX.Element }) {
+  const { isLoaded, getToken } = useAuth();
+  const [status, setStatus] = useState<"loading" | "needs" | "done">("loading");
+
+  useEffect(() => {
+    const run = async () => {
+      if (!isLoaded) return;
+
+      try {
+        const token = await getToken();
+        if (!token) {
+          setStatus("needs");
+          return;
+        }
+
+        const resp = await fetch("/api/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!resp.ok) {
+          setStatus("needs");
+          return;
+        }
+
+        const data = await resp.json();
+        setStatus(data?.barber ? "done" : "needs");
+      } catch {
+        setStatus("needs");
+      }
+    };
+
+    run();
+  }, [isLoaded, getToken]);
+
+  if (!isLoaded || status === "loading") return null;
+
+  if (status === "done") {
+    return <Navigate to="/app" replace />;
   }
 
   return children;
@@ -45,6 +120,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* HOME */}
+        <Route path="/" element={<HomeGate />} />
+
         {/* AUTH */}
         <Route path="/login" element={<SignIn routing="path" path="/login" />} />
         <Route
@@ -57,7 +135,9 @@ export default function App() {
           path="/onboarding"
           element={
             <RequireAuth>
-              <OnboardingQuiz />
+              <BlockOnboardingIfDone>
+                <OnboardingQuiz />
+              </BlockOnboardingIfDone>
             </RequireAuth>
           }
         />
@@ -74,9 +154,8 @@ export default function App() {
           }
         />
 
-        {/* DEFAULT */}
-        <Route path="/" element={<Navigate to="/app" replace />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* 404 */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );
