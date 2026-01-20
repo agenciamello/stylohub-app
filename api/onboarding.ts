@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { requireClerkUserId, supabaseAdmin } from "./_utils.ts";
+import { requireClerkUserId, supabaseAdmin } from "./_utils";
 
 export default async function handler(
   req: VercelRequest,
