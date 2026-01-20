@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useAuth } from "@clerk/clerk-react";
+import { useAuth, useUser } from "@clerk/clerk-react";
 
 import { Badge, Button } from "./ui/Primitives";
 import { Icons } from "./ui/Icons";
@@ -21,13 +21,12 @@ type Barber = {
   days_per_week: number | null;
   created_at: string;
   updated_at: string;
-  // (futuro) xp_total?: number;
-  // (futuro) level?: number;
 };
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { getToken, isLoaded } = useAuth();
+  const { user } = useUser();
 
   const [activeTab, setActiveTab] = useState<
     "overview" | "schedule" | "finance" | "academy" | "profile"
@@ -55,7 +54,6 @@ export const DashboardPage: React.FC = () => {
 
         const token = await getToken();
         if (!token) {
-          // Se não tem token, deixa o RequireAuth do App cuidar (redireciona)
           setLoading(false);
           return;
         }
@@ -74,8 +72,12 @@ export const DashboardPage: React.FC = () => {
         const data = (await resp.json()) as { barber: Barber | null };
 
         if (!data.barber) {
-          // Não existe perfil no banco -> força onboarding
-          localStorage.removeItem("stylohub:onboarding_completed");
+          // 🔥 REMOVE A CHAVE CORRETA (POR USUÁRIO)
+          const storageKey = user?.id
+            ? `stylohub:onboarding_completed:${user.id}`
+            : "stylohub:onboarding_completed";
+
+          localStorage.removeItem(storageKey);
           navigate("/onboarding", { replace: true });
           return;
         }
@@ -89,7 +91,7 @@ export const DashboardPage: React.FC = () => {
     };
 
     run();
-  }, [getToken, isLoaded, navigate]);
+  }, [getToken, isLoaded, navigate, user?.id]);
 
   if (loading) {
     return (
@@ -109,7 +111,6 @@ export const DashboardPage: React.FC = () => {
   }
 
   if (!barber) {
-    // Caso raro (já que acima redireciona), mas mantém seguro.
     return (
       <div className="text-white text-center p-10">
         Perfil não encontrado. Redirecionando...
@@ -122,7 +123,6 @@ export const DashboardPage: React.FC = () => {
 
   const avatarChar = displayName.charAt(0).toUpperCase();
 
-  // Ainda mock (quando criarmos colunas no Supabase, buscamos daqui)
   const xp = 0;
   const level = 1;
 
@@ -138,7 +138,6 @@ export const DashboardPage: React.FC = () => {
       <header className="sticky top-0 z-40 border-b border-zinc-800 bg-background/80 backdrop-blur-md">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            {/* Avatar */}
             <div className="w-10 h-10 bg-amber-500 rounded-full flex items-center justify-center text-black font-bold">
               {avatarChar}
             </div>
@@ -166,7 +165,6 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Desktop Navigation */}
         <div className="hidden md:block max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="flex gap-6 overflow-x-auto hide-scrollbar">
             {tabs.map((tab) => {
@@ -191,7 +189,6 @@ export const DashboardPage: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {activeTab === "overview" && <OverviewTab />}
         {activeTab === "schedule" && <ScheduleTab />}
@@ -200,7 +197,6 @@ export const DashboardPage: React.FC = () => {
         {activeTab === "profile" && <ProfileTab />}
       </main>
 
-      {/* Mobile Bottom Navigation */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-lg border-t border-zinc-800 z-50 pb-safe safe-area-pb">
         <div className="flex justify-around items-center h-16 px-2">
           {tabs.map((tab) => {

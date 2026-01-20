@@ -1,32 +1,74 @@
-import { requireClerkUser, supabaseAdmin } from "./_utils";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { requireClerkUserId, supabaseAdmin } from "./_utils.ts";
 
-export default async function handler(req: any, res: any) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+export default async function handler(
+  req: VercelRequest,
+  res: VercelResponse
+) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
 
-  const auth = await requireClerkUser(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  try {
+    // 🔐 Autenticação via Clerk
+    const clerkUserId = await requireClerkUserId(req);
 
-  const { avgPrice, clientsPerDay, daysPerWeek, firstName, fullName, email } = req.body || {};
+    const {
+      avgPrice,
+      clientsPerDay,
+      daysPerWeek,
+      firstName,
+      fullName,
+      email,
+    } = req.body ?? {};
 
-  const sb = supabaseAdmin();
+    // 🛡️ Validação defensiva mínima
+    if (
+      typeof avgPrice !== "number" ||
+      typeof clientsPerDay !== "number" ||
+      typeof daysPerWeek !== "number"
+    ) {
+      return res.status(400).json({
+        error: "Dados inválidos no onboarding",
+      });
+    }
 
-  const { data, error } = await sb
-    .from("barbers")
-    .upsert(
-      {
-        clerk_user_id: auth.userId,
-        email: email ?? null,
-        first_name: firstName ?? null,
-        full_name: fullName ?? null,
-        avg_price: avgPrice ?? null,
-        clients_per_day: clientsPerDay ?? null,
-        days_per_week: daysPerWeek ?? null,
-      },
-      { onConflict: "clerk_user_id" }
-    )
-    .select("*")
-    .single();
+    // 💾 UPSERT no Supabase (idempotente)
+    const { data, error } = await supabaseAdmin
+      .from("barbers")
+      .upsert(
+        {
+          clerk_user_id: clerkUserId,
+          email: email ?? null,
+          first_name: firstName ?? null,
+          full_name: fullName ?? null,
+          avg_price: avgPrice,
+          clients_per_day: clientsPerDay,
+          days_per_week: daysPerWeek,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: "clerk_user_id",
+        }
+      )
+      .select()
+      .single();
 
-  if (error) return res.status(500).json({ error: error.message });
-  return res.status(200).json({ barber: data });
+    if (error) {
+      console.error("❌ Supabase upsert error:", error);
+      return res.status(500).json({
+        error: "Erro ao salvar onboarding no banco",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      barber: data,
+    });
+  } catch (err: any) {
+    console.error("❌ Onboarding API error:", err);
+    return res.status(500).json({
+      error: "Internal server error",
+    });
+  }
 }

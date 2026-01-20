@@ -2,11 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Button, Card, CardContent } from '../ui/Primitives';
 import { Icons } from '../ui/Icons';
 import { useNavigate } from 'react-router-dom';
-import { useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/clerk-react';
 
 export const OnboardingQuiz: React.FC = () => {
   const navigate = useNavigate();
   const { user, isLoaded, isSignedIn } = useUser();
+  const { getToken } = useAuth();
 
   const [step, setStep] = useState(1);
   const totalSteps = 3;
@@ -17,6 +18,9 @@ export const OnboardingQuiz: React.FC = () => {
     daysPerWeek: 5,
   });
 
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
   const dashboardPath = '/app'; // <-- TROQUE AQUI se seu dashboard for /app
 
   const storageKey = useMemo(() => {
@@ -26,23 +30,61 @@ export const OnboardingQuiz: React.FC = () => {
   }, [user?.id]);
 
   const handleNext = async () => {
+    setSaveError(null);
+
     if (step < totalSteps) {
       setStep(step + 1);
       return;
     }
 
-    // Finalizar
-    // (MVP) salva localmente por usuário
-    localStorage.setItem(storageKey, 'true');
+    // Finalizar: salva no banco primeiro (evita loop no dashboard)
+    try {
+      setIsSaving(true);
 
-    // (opcional) também salvar as respostas localmente
-    localStorage.setItem(
-      `stylohub:onboarding_answers:${user?.id ?? 'anonymous'}`,
-      JSON.stringify(answers)
-    );
+      const token = await getToken();
+      if (!token) {
+        throw new Error('Sem token de autenticação. Faça login novamente.');
+      }
 
-    // navega de verdade
-    navigate(dashboardPath, { replace: true });
+      const payload = {
+        avgPrice: answers.avgPrice,
+        clientsPerDay: answers.clientsPerDay,
+        daysPerWeek: answers.daysPerWeek,
+        firstName: user?.firstName ?? '',
+        fullName: user?.fullName ?? '',
+        email: user?.primaryEmailAddress?.emailAddress ?? '',
+      };
+
+      const res = await fetch('/api/onboarding', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Falha ao salvar onboarding (${res.status}). ${text}`);
+      }
+
+      // Só depois que o backend confirmar, marca localmente
+      localStorage.setItem(storageKey, 'true');
+
+      // (opcional) também salvar as respostas localmente
+      localStorage.setItem(
+        `stylohub:onboarding_answers:${user?.id ?? 'anonymous'}`,
+        JSON.stringify(answers)
+      );
+
+      // navega de verdade
+      navigate(dashboardPath, { replace: true });
+    } catch (err: any) {
+      setSaveError(err?.message ?? 'Erro ao salvar onboarding.');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleBack = () => {
@@ -102,6 +144,12 @@ export const OnboardingQuiz: React.FC = () => {
               {step === 2 && 'Quantos dias por semana você costuma trabalhar na barbearia?'}
               {step === 3 && 'Em média, quantos clientes você atende por dia?'}
             </p>
+
+            {saveError && (
+              <div className="mt-4 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200">
+                {saveError}
+              </div>
+            )}
           </div>
 
           <div className="space-y-8 min-h-[120px]">
@@ -156,6 +204,7 @@ export const OnboardingQuiz: React.FC = () => {
                     onClick={() =>
                       setAnswers((p) => ({ ...p, clientsPerDay: Math.max(1, p.clientsPerDay - 1) }))
                     }
+                    disabled={isSaving}
                   >
                     -
                   </Button>
@@ -170,6 +219,7 @@ export const OnboardingQuiz: React.FC = () => {
                     onClick={() =>
                       setAnswers((p) => ({ ...p, clientsPerDay: Math.min(30, p.clientsPerDay + 1) }))
                     }
+                    disabled={isSaving}
                   >
                     +
                   </Button>
@@ -184,14 +234,14 @@ export const OnboardingQuiz: React.FC = () => {
             <Button
               variant="ghost"
               onClick={handleBack}
-              disabled={step === 1}
+              disabled={step === 1 || isSaving}
               className={step === 1 ? 'opacity-0 pointer-events-none' : ''}
             >
               Voltar
             </Button>
 
-            <Button variant="gold" onClick={handleNext} className="px-8">
-              {step === totalSteps ? 'Finalizar Configuração' : 'Próximo'}
+            <Button variant="gold" onClick={handleNext} className="px-8" disabled={isSaving}>
+              {step === totalSteps ? (isSaving ? 'Salvando...' : 'Finalizar Configuração') : 'Próximo'}
               <Icons.ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </div>

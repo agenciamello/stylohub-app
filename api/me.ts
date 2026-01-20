@@ -1,15 +1,17 @@
-import { requireClerkUser, supabaseAdmin } from "./_utils";
+import { requireClerkUserId, supabaseAdmin } from "./_utils.ts";
 
 export default async function handler(req: any, res: any) {
-  const auth = await requireClerkUser(req);
-  if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+  let clerkUserId: string;
+  try {
+    clerkUserId = await requireClerkUserId(req);
+  } catch (err: any) {
+    return res.status(401).json({ error: err?.message ?? "Unauthorized" });
+  }
 
-  const sb = supabaseAdmin();
-
-  const { data, error } = await sb
+  const { data, error } = await supabaseAdmin
     .from("barbers")
     .select("*")
-    .eq("clerk_user_id", auth.userId)
+    .eq("clerk_user_id", clerkUserId)
     .maybeSingle();
 
   if (error) return res.status(500).json({ error: error.message });
